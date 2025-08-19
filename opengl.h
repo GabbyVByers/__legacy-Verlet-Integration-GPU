@@ -131,7 +131,9 @@ public:
         enableVSYNC();
 	}
 
-    ~InteropOpenGL()
+    ~InteropOpenGL() { free(); }
+
+    void free()
     {
         cudaGraphicsUnregisterResource(cudaPBO);
         glDeleteBuffers(1, &PBO);

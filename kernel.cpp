@@ -1,6 +1,31 @@
 
 #include "opengl.h"
 
+__global__ void ballCollisionResolutionKernel(SimulationState simState)
+{
+    int index = (blockIdx.x * blockDim.x) + threadIdx.x;
+    if (index >= simState.balls.size) return;
+
+    SharedArray<Ball>& balls = simState.balls;
+    Ball& ball = balls.devPtr[index];
+    
+    for (int i = 0; i < balls.size; i++)
+    {
+        if (i == index) continue;
+        Ball& otherBall = balls.devPtr[i];
+        
+        float distance = length(ball.position - otherBall.position);
+        float radiuses = ball.radius + otherBall.radius;
+        if (distance > radiuses) continue;
+
+        float halfOverlap = (radiuses - distance) * 0.5f;
+        Vec2f direction = ball.position - otherBall.position;
+        normalize(direction);
+        Vec2f correction = direction * halfOverlap;
+        ball.position = ball.position + correction;
+    }
+}
+
 __global__ void physicsKernel(SimulationState simState)
 {
     int index = (blockIdx.x * blockDim.x) + threadIdx.x;
@@ -18,10 +43,28 @@ __global__ void physicsKernel(SimulationState simState)
     ball.velocity = new_velocity;
     ball.acceleration = new_acceleration;
 
-    if (ball.position.y - ball.radius < -1.0f)
+    if (ball.position.y - ball.radius < -1.0f) // floor
     {
         ball.position.y = -1.0f + ball.radius;
         ball.velocity.y = -ball.velocity.y;
+    }
+
+    if (ball.position.y + ball.radius > 1.0f) // ceiling
+    {
+        ball.position.y = 1.0f - ball.radius;
+        ball.velocity.y = -ball.velocity.y;
+    }
+
+    if (ball.position.x + ball.radius > simState.max_u) // right wall
+    {
+        ball.position.x = simState.max_u - ball.radius;
+        ball.velocity.x = -ball.velocity.x;
+    }
+
+    if (ball.position.x - ball.radius < -simState.max_u) // left wall
+    {
+        ball.position.x = -simState.max_u + ball.radius;
+        ball.velocity.x = -ball.velocity.x;
     }
 }
 
@@ -63,6 +106,13 @@ void InteropOpenGL::executePixelKernel(SimulationState& simState)
 
     int BALLS_threadsPerBlock = 256;
     int BALLS_blocksPerGrid = (simState.balls.size + BALLS_threadsPerBlock - 1) / BALLS_threadsPerBlock;
+    
+    for (int i = 0; i < 8; i++)
+    {
+        ballCollisionResolutionKernel <<<BALLS_blocksPerGrid, BALLS_threadsPerBlock>>> (simState);
+        cudaDeviceSynchronize();
+    }
+
     physicsKernel <<<BALLS_blocksPerGrid, BALLS_threadsPerBlock>>> (simState);
     cudaDeviceSynchronize();
 

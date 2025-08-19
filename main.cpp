@@ -4,7 +4,7 @@
 
 int main()
 {
-    bool fullScreen = false;
+    bool fullScreen = true;
     InteropOpenGL OpenGL(1920, 1080, "Cuda OpenGL Interop", fullScreen);
     OpenGL.disableVSYNC();
 
@@ -13,12 +13,15 @@ int main()
 
     while (OpenGL.isAlive())
     {
+        OpenGL.processUserInput();
         OpenGL.executePixelKernel(simState);
         OpenGL.renderFullScreenQuad();
         OpenGL.renderImGui();
         OpenGL.swapBuffers();
     }
 
+    simState.balls.free();
+    OpenGL.free();
     return 0;
 }
 

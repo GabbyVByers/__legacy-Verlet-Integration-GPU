@@ -23,3 +23,4 @@ inline uchar4 randomColor()
     unsigned char B = rand() % 255;
     return make_uchar4(R, G, B, 255);
 }
+
