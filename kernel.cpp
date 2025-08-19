@@ -1,7 +1,25 @@
 
 #include "opengl.h"
 
-__global__ void ballCollisionResolutionKernel(SimulationState simState)
+__global__ void physicsKernel(SimulationState simState)
+{
+    int index = (blockIdx.x * blockDim.x) + threadIdx.x;
+    if (index >= simState.balls.size) return;
+
+    SharedArray<Ball>& balls = simState.balls;
+    Ball& ball = balls.devPtr[index];
+
+    float dt = simState.dt;
+    Vec2f new_position = ball.position + (ball.velocity * dt) + (ball.acceleration * (dt * dt * 0.5f));
+    Vec2f new_acceleration = Vec2f{ 0.0f, -1000.0f };
+    Vec2f new_velocity = ball.velocity + ((ball.acceleration + new_acceleration) * (dt * 0.5f));
+
+    ball.position = new_position;
+    ball.velocity = new_velocity;
+    ball.acceleration = new_acceleration;
+}
+
+__global__ void collisionResolutionKernel(SimulationState simState)
 {
     int index = (blockIdx.x * blockDim.x) + threadIdx.x;
     if (index >= simState.balls.size) return;
@@ -18,30 +36,31 @@ __global__ void ballCollisionResolutionKernel(SimulationState simState)
         float radiuses = ball.radius + otherBall.radius;
         if (distance > radiuses) continue;
 
+        // elastic bounce
+        float massRatio = (2.0f * otherBall.mass) / (ball.mass + otherBall.mass);
+        float dotProduct = dot(ball.velocity - otherBall.velocity, ball.position - otherBall.position);
+        Vec2f relPosVector = ball.position - otherBall.position;
+        float lengthSq = lengthSquared(relPosVector);
+        Vec2f new_velocity = ball.velocity - (relPosVector * (massRatio * (dotProduct / lengthSq)));
+        ball.velocity = new_velocity;
+    }
+
+    for (int i = 0; i < balls.size; i++)
+    {
+        if (i == index) continue;
+        Ball& otherBall = balls.devPtr[i];
+
+        float distance = length(ball.position - otherBall.position);
+        float radiuses = ball.radius + otherBall.radius;
+        if (distance > radiuses) continue;
+
+        // force apart
         float halfOverlap = (radiuses - distance) * 0.5f;
         Vec2f direction = ball.position - otherBall.position;
         normalize(direction);
         Vec2f correction = direction * halfOverlap;
         ball.position = ball.position + correction;
     }
-}
-
-__global__ void physicsKernel(SimulationState simState)
-{
-    int index = (blockIdx.x * blockDim.x) + threadIdx.x;
-    if (index >= simState.balls.size) return;
-
-    SharedArray<Ball>& balls = simState.balls;
-    Ball& ball = balls.devPtr[index];
-
-    float dt = simState.dt;
-    Vec2f new_position = ball.position + (ball.velocity * dt) + (ball.acceleration * (dt * dt * 0.5f));
-    Vec2f new_acceleration = Vec2f{ 0.0f, -1000.0f };
-    Vec2f new_velocity = ball.velocity + ((ball.acceleration + new_acceleration) * (dt * 0.5f));
-    
-    ball.position = new_position;
-    ball.velocity = new_velocity;
-    ball.acceleration = new_acceleration;
 
     if (ball.position.y - ball.radius < -1.0f) // floor
     {
@@ -107,13 +126,10 @@ void InteropOpenGL::executePixelKernel(SimulationState& simState)
     int BALLS_threadsPerBlock = 256;
     int BALLS_blocksPerGrid = (simState.balls.size + BALLS_threadsPerBlock - 1) / BALLS_threadsPerBlock;
     
-    for (int i = 0; i < 8; i++)
-    {
-        ballCollisionResolutionKernel <<<BALLS_blocksPerGrid, BALLS_threadsPerBlock>>> (simState);
-        cudaDeviceSynchronize();
-    }
-
     physicsKernel <<<BALLS_blocksPerGrid, BALLS_threadsPerBlock>>> (simState);
+    cudaDeviceSynchronize();
+
+    collisionResolutionKernel << <BALLS_blocksPerGrid, BALLS_threadsPerBlock >> > (simState);
     cudaDeviceSynchronize();
 
     renderKernel <<<WINDOW_blocksPerGrid, WINDOW_threadsPerBlock >>> (simState);
