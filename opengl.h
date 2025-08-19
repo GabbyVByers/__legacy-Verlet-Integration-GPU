@@ -20,8 +20,8 @@ public:
     int screenWidth = -1;
     int screenHeight = -1;
     GLFWwindow* window = nullptr;
-    dim3 block = 0;
-    dim3 grid = 0;
+    dim3 WINDOW_threadsPerBlock = 0;
+    dim3 WINDOW_blocksPerGrid = 0;
     GLuint PBO = 0;
     cudaGraphicsResource* cudaPBO = nullptr;
     GLuint textureId = 0;
@@ -51,8 +51,8 @@ public:
             window = glfwCreateWindow(screenWidth, screenHeight, title.c_str(), nullptr, nullptr);
         }
 
-        block = dim3(32, 32);
-        grid = dim3((screenWidth / 32) + 1, (screenHeight / 32) + 1);
+        WINDOW_threadsPerBlock = dim3(32, 32);
+        WINDOW_blocksPerGrid = dim3((screenWidth / 32) + 1, (screenHeight / 32) + 1);
 
         glfwMakeContextCurrent(window);
         gladLoadGLLoader((GLADloadproc)glfwGetProcAddress);

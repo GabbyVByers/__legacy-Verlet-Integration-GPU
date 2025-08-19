@@ -5,7 +5,7 @@
 int main()
 {
     bool fullScreen = false;
-    InteropOpenGL OpenGL(1200, 800, "Cuda OpenGL Interop", fullScreen);
+    InteropOpenGL OpenGL(1920, 1080, "Cuda OpenGL Interop", fullScreen);
     OpenGL.disableVSYNC();
 
     SimulationState simState;

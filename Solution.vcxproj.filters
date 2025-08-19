@@ -42,6 +42,9 @@
     <CudaCompile Include="vec2f.h">
       <Filter>Header Files</Filter>
     </CudaCompile>
+    <CudaCompile Include="random.h">
+      <Filter>Header Files</Filter>
+    </CudaCompile>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="glad.c">

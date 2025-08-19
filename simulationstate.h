@@ -1,8 +1,8 @@
 #pragma once
 
 #include "sharedarray.h"
+#include "random.h"
 #include <tuple>
-#include "vec2f.h"
 
 struct Ball
 {
@@ -19,29 +19,8 @@ struct SimulationState
     int screenHeight = -1;
     uchar4* pixels = nullptr;
     SharedArray<Ball> balls;
+    float dt = 0.0001f;
 };
-
-inline float randomFloat(float min, float max)
-{
-    return ((rand() / (float)RAND_MAX) * (max - min)) + min;
-}
-
-inline Vec2f randomVec2f(float min, float max)
-{
-    return
-    {
-        randomFloat(min, max),
-        randomFloat(min, max)
-    };
-}
-
-inline uchar4 randomColor()
-{
-    unsigned char R = rand() % 255;
-    unsigned char G = rand() % 255;
-    unsigned char B = rand() % 255;
-    return make_uchar4(R, G, B, 255);
-}
 
 inline void initSimulation(std::tuple<int, int> screenDim, SimulationState& simState)
 {

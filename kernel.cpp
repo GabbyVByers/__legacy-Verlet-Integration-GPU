@@ -1,7 +1,31 @@
 
 #include "opengl.h"
 
-__global__ void pixelKernel(SimulationState simState)
+__global__ void physicsKernel(SimulationState simState)
+{
+    int index = (blockIdx.x * blockDim.x) + threadIdx.x;
+    if (index >= simState.balls.size) return;
+
+    SharedArray<Ball>& balls = simState.balls;
+    Ball& ball = balls.devPtr[index];
+
+    float dt = simState.dt;
+    Vec2f new_position = ball.position + (ball.velocity * dt) + (ball.acceleration * (dt * dt * 0.5f));
+    Vec2f new_acceleration = Vec2f{ 0.0f, -1000.0f };
+    Vec2f new_velocity = ball.velocity + ((ball.acceleration + new_acceleration) * (dt * 0.5f));
+    
+    ball.position = new_position;
+    ball.velocity = new_velocity;
+    ball.acceleration = new_acceleration;
+
+    if (ball.position.y - ball.radius < -1.0f)
+    {
+        ball.position.y = -1.0f + ball.radius;
+        ball.velocity.y = -ball.velocity.y;
+    }
+}
+
+__global__ void renderKernel(SimulationState simState)
 {
     int x = blockIdx.x * blockDim.x + threadIdx.x;
     int y = blockIdx.y * blockDim.y + threadIdx.y;
@@ -36,7 +60,13 @@ void InteropOpenGL::executePixelKernel(SimulationState& simState)
     size_t size = 0;
     cudaGraphicsMapResources(1, &cudaPBO, 0);
     cudaGraphicsResourceGetMappedPointer((void**)&simState.pixels, &size, cudaPBO);
-    pixelKernel <<<grid, block>>> (simState);
+
+    int BALLS_threadsPerBlock = 256;
+    int BALLS_blocksPerGrid = (simState.balls.size + BALLS_threadsPerBlock - 1) / BALLS_threadsPerBlock;
+    physicsKernel <<<BALLS_blocksPerGrid, BALLS_threadsPerBlock>>> (simState);
+    cudaDeviceSynchronize();
+
+    renderKernel <<<WINDOW_blocksPerGrid, WINDOW_threadsPerBlock >>> (simState);
     cudaDeviceSynchronize();
 }
 

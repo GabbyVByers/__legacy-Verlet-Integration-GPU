@@ -5,12 +5,30 @@ struct Vec2f
     float x = 0.0f;
     float y = 0.0f;
 
+    __host__ __device__ Vec2f operator + (Vec2f& other)
+    {
+        return
+        {
+            x + other.x,
+            y + other.y
+        };
+    }
+
     __host__ __device__ Vec2f operator - (Vec2f& other)
     {
         return
         {
             x - other.x,
             y - other.y
+        };
+    }
+
+    __host__ __device__ Vec2f operator * (float value)
+    {
+        return
+        {
+            x * value,
+            y * value
         };
     }
 };
