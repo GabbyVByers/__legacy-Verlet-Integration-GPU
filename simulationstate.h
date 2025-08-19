@@ -32,11 +32,11 @@ inline void initSimulation(std::tuple<int, int> screenDim, SimulationState& simS
     simState.screenHeight = std::get<1>(screenDim);
     simState.max_u = (simState.screenWidth / (float)simState.screenHeight);;
 
-    int numBalls = 20;
+    int numBalls = 500;
     for (int i = 0; i < numBalls; i++)
     {
         Ball ball;
-        ball.radius = randomFloat(0.1f, 0.15f);
+        ball.radius = randomFloat(0.01f, 0.03f);
         ball.position = randomVec2f(-1.0f, 1.0f);
         ball.velocity = randomVec2f(-1.0f, 1.0f);
         normalize(ball.velocity);
