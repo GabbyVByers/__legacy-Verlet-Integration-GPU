@@ -1,13 +1,19 @@
 ﻿
 #include "opengl.h"
+#include "simulationstate.h"
 
 int main()
 {
-    InteropOpenGL OpenGL(1200, 800, "Cuda OpenGL Interop", false);
+    bool fullScreen = false;
+    InteropOpenGL OpenGL(1200, 800, "Cuda OpenGL Interop", fullScreen);
+    OpenGL.disableVSYNC();
+
+    SimulationState simState;
+    initSimulation(OpenGL.getScreenDim(), simState);
 
     while (OpenGL.isAlive())
     {
-        OpenGL.executePixelKernel();
+        OpenGL.executePixelKernel(simState);
         OpenGL.renderFullScreenQuad();
         OpenGL.renderImGui();
         OpenGL.swapBuffers();

@@ -33,6 +33,15 @@
     <CudaCompile Include="input.cpp">
       <Filter>Source Files</Filter>
     </CudaCompile>
+    <CudaCompile Include="sharedarray.h">
+      <Filter>Header Files</Filter>
+    </CudaCompile>
+    <CudaCompile Include="simulationstate.h">
+      <Filter>Header Files</Filter>
+    </CudaCompile>
+    <CudaCompile Include="vec2f.h">
+      <Filter>Header Files</Filter>
+    </CudaCompile>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="glad.c">

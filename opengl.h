@@ -9,6 +9,9 @@
 #include <GLFW/glfw3.h>
 #include <cuda_gl_interop.h>
 #include <string>
+#include <tuple>
+
+#include "simulationstate.h"
 
 class InteropOpenGL
 {
@@ -140,7 +143,7 @@ public:
         glfwTerminate();
     }
 
-    void executePixelKernel();
+    void executePixelKernel(SimulationState& simState);
     void initImGui();
     void renderImGui();
     void processUserInput();
@@ -148,6 +151,11 @@ public:
     bool isAlive() const { return !glfwWindowShouldClose(window); }
     void enableVSYNC() { glfwSwapInterval(1); }
     void disableVSYNC() { glfwSwapInterval(0); }
+    
+    std::tuple<int, int> getScreenDim()
+    {
+        return std::tuple<int, int>(screenWidth, screenHeight);
+    }
 
     void renderFullScreenQuad()
     {
