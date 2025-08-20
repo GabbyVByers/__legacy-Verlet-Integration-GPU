@@ -147,7 +147,7 @@ public:
 
     void executePixelKernel(SimulationState& simState);
     void initImGui();
-    void renderImGui();
+    void renderImGui(SimulationState& simState);
     void processUserInput();
 
     bool isAlive() const { return !glfwWindowShouldClose(window); }

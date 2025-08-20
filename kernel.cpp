@@ -11,7 +11,7 @@ __global__ void physicsKernel(SimulationState simState)
 
     float dt = simState.dt;
     Vec2f new_position = ball.position + (ball.velocity * dt) + (ball.acceleration * (dt * dt * 0.5f));
-    Vec2f new_acceleration = Vec2f{ 0.0f, -1000.0f };
+    Vec2f new_acceleration = Vec2f{ 0.0f, -simState.gravity };
     Vec2f new_velocity = ball.velocity + ((ball.acceleration + new_acceleration) * (dt * 0.5f));
 
     ball.position = new_position;
@@ -19,13 +19,15 @@ __global__ void physicsKernel(SimulationState simState)
     ball.acceleration = new_acceleration;
 }
 
-__global__ void collisionResolutionKernel(SimulationState simState)
+__global__ void ballCollisionKernel(SimulationState simState)
 {
     int index = (blockIdx.x * blockDim.x) + threadIdx.x;
     if (index >= simState.balls.size) return;
 
     SharedArray<Ball>& balls = simState.balls;
     Ball& ball = balls.devPtr[index];
+    ball.new_position = ball.position;
+    ball.new_velocity = ball.velocity;
     
     for (int i = 0; i < balls.size; i++)
     {
@@ -43,20 +45,37 @@ __global__ void collisionResolutionKernel(SimulationState simState)
         Vec2f V2 = otherBall.velocity;
         Vec2f P1 = ball.position;
         Vec2f P2 = otherBall.position;
-        Vec2f new_V1 = V1 - (P1 - P2) * (((2.0f * M2) / (M1 + M2)) * (dot(V1 - V2, P1 - P2) / lengthSquared(P1 - P2)));
-        Vec2f new_V2 = V2 - (P2 - P1) * (((2.0f * M1) / (M1 + M2)) * (dot(V2 - V1, P2 - P1) / lengthSquared(P2 - P1)));
-        Vec2f averageVelocity = (new_V1 + new_V2) * 0.5f;
-        ball.velocity      = ((averageVelocity * simState.viscosity) + (new_V1 * (1.0f - simState.viscosity))) * simState.ballCollisionDampening;
-        otherBall.velocity = ((averageVelocity * simState.viscosity) + (new_V2 * (1.0f - simState.viscosity))) * simState.ballCollisionDampening;
+        ball.new_velocity = V1 - (P1 - P2) * (((2.0f * M2) / (M1 + M2)) * (dot(V1 - V2, P1 - P2) / lengthSquared(P1 - P2)));
+        ball.new_velocity = ball.new_velocity * simState.ballCollisionDampening;
 
         // force apart
         float overlap = (radiuses - distance);
         Vec2f direction = ball.position - otherBall.position;
         normalize(direction);
         Vec2f correction = direction * overlap;
-        ball.position = ball.position + correction;
-        otherBall.position = otherBall.position - correction;
+        ball.new_position = ball.position + correction;
     }
+}
+
+__global__ void confirmCollisionsKernel(SimulationState simState)
+{
+    int index = (blockIdx.x * blockDim.x) + threadIdx.x;
+    if (index >= simState.balls.size) return;
+
+    SharedArray<Ball>& balls = simState.balls;
+    Ball& ball = balls.devPtr[index];
+
+    ball.position = ball.new_position;
+    ball.velocity = ball.new_velocity;
+}
+
+__global__ void wallCollisionResolutionKernel(SimulationState simState)
+{
+    int index = (blockIdx.x * blockDim.x) + threadIdx.x;
+    if (index >= simState.balls.size) return;
+
+    SharedArray<Ball>& balls = simState.balls;
+    Ball& ball = balls.devPtr[index];
 
     if (ball.position.y - ball.radius < -1.0f) // floor
     {
@@ -125,15 +144,19 @@ void InteropOpenGL::executePixelKernel(SimulationState& simState)
 
     int BALLS_threadsPerBlock = 256;
     int BALLS_blocksPerGrid = (simState.balls.size + BALLS_threadsPerBlock - 1) / BALLS_threadsPerBlock;
-    
-    physicsKernel <<<BALLS_blocksPerGrid, BALLS_threadsPerBlock>>> (simState);
-    cudaDeviceSynchronize();
 
     for (int i = 0; i < 16; i++)
     {
-        collisionResolutionKernel <<<BALLS_blocksPerGrid, BALLS_threadsPerBlock>>> (simState);
+        ballCollisionKernel <<<BALLS_blocksPerGrid, BALLS_threadsPerBlock>>> (simState);
+        cudaDeviceSynchronize();
+        confirmCollisionsKernel <<<BALLS_blocksPerGrid, BALLS_threadsPerBlock>>> (simState);
+        cudaDeviceSynchronize();
+        wallCollisionResolutionKernel <<<BALLS_blocksPerGrid, BALLS_threadsPerBlock >>> (simState);
         cudaDeviceSynchronize();
     }
+
+    physicsKernel << <BALLS_blocksPerGrid, BALLS_threadsPerBlock >> > (simState);
+    cudaDeviceSynchronize();
 
     renderKernel <<<WINDOW_blocksPerGrid, WINDOW_threadsPerBlock >>> (simState);
     cudaDeviceSynchronize();
