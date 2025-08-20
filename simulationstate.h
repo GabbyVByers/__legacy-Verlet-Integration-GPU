@@ -24,6 +24,7 @@ struct SimulationState
     float dt = 0.0001f;
     float wallCollisionDampening = 1.0f;
     float ballCollisionDampening = 1.0f;
+    float viscosity = 0.0f;
 };
 
 inline void initSimulation(std::tuple<int, int> screenDim, SimulationState& simState)
@@ -32,15 +33,14 @@ inline void initSimulation(std::tuple<int, int> screenDim, SimulationState& simS
     simState.screenHeight = std::get<1>(screenDim);
     simState.max_u = (simState.screenWidth / (float)simState.screenHeight);;
 
-    int numBalls = 500;
+    int numBalls = 1000;
     for (int i = 0; i < numBalls; i++)
     {
         Ball ball;
-        ball.radius = randomFloat(0.01f, 0.03f);
+        ball.radius = 0.02f;
         ball.position = randomVec2f(-1.0f, 1.0f);
         ball.velocity = randomVec2f(-1.0f, 1.0f);
         normalize(ball.velocity);
-        ball.velocity = ball.velocity * 30.0f;
         ball.color = randomColor();
         simState.balls.add(ball);
     }
