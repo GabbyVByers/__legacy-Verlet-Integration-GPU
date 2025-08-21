@@ -189,6 +189,6 @@ void InteropOpenGL::executeKernels(SimulationState& simState)
     ballCollisionKernel    KERNEL_DIM(BALLS_blocksPerGrid, BALLS_threadsPerBlock)(simState); cudaDeviceSynchronize();
     confirmCollisionKernel KERNEL_DIM(BALLS_blocksPerGrid, BALLS_threadsPerBlock)(simState); cudaDeviceSynchronize();
     stepPhysicsKernel      KERNEL_DIM(BALLS_blocksPerGrid, BALLS_threadsPerBlock)(simState); cudaDeviceSynchronize();
-    renderKernel           KERNEL_DIM(WINDW_blocksPerGrid, WINDW_threadsPerBlock)(simState); cudaDeviceSynchronize();
+    renderKernel           KERNEL_DIM(PIXLS_blocksPerGrid, PIXLS_threadsPerBlock)(simState); cudaDeviceSynchronize();
 }
 
