@@ -31,6 +31,15 @@ struct Vec2f
             y * value
         };
     }
+
+    __host__ __device__ Vec2f operator / (float value)
+    {
+        return
+        {
+            x / value,
+            y / value
+        };
+    }
 };
 
 __host__ __device__ inline float length(Vec2f& vec)

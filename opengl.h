@@ -145,7 +145,7 @@ public:
         glfwTerminate();
     }
 
-    void executePixelKernel(SimulationState& simState);
+    void executeKernels(SimulationState& simState);
     void initImGui();
     void renderImGui(SimulationState& simState);
     void processUserInput();

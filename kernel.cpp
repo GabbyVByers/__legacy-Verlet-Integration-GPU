@@ -1,22 +1,70 @@
 
 #include "opengl.h"
 
-__global__ void physicsKernel(SimulationState simState)
+__device__ Vec2f getBallVelocity(Ball& ball, float dt)
+{
+    Vec2f newPos = (ball.prevPos * -1.0f) + (ball.currPos * 2.0f) + (ball.acceleration * dt * dt);
+    Vec2f velocity = (newPos - ball.prevPos) / (2.0f * dt);
+    return velocity;
+}
+
+__device__ void setBallVelocity(Ball& ball, Vec2f velocity, float dt)
+{
+    ball.prevPos = ball.currPos - (velocity * dt) + (ball.acceleration * 0.5f * dt * dt);
+}
+
+__device__ Vec2f getBallVelocity_fromNew(Ball& ball, float dt)
+{
+    Vec2f newPos = (ball.new_prevPos * -1.0f) + (ball.new_currPos * 2.0f) + (ball.acceleration * dt * dt);
+    Vec2f velocity = (newPos - ball.new_prevPos) / (2.0f * dt);
+    return velocity;
+}
+
+__device__ void setBallVelocity_fromNew(Ball& ball, Vec2f velocity, float dt)
+{
+    ball.new_prevPos = ball.new_currPos - (velocity * dt) + (ball.acceleration * 0.5f * dt * dt);
+}
+
+__global__ void wallCollisionKernel(SimulationState simState)
 {
     int index = (blockIdx.x * blockDim.x) + threadIdx.x;
     if (index >= simState.balls.size) return;
 
     SharedArray<Ball>& balls = simState.balls;
     Ball& ball = balls.devPtr[index];
-
     float dt = simState.dt;
-    Vec2f new_position = ball.position + (ball.velocity * dt) + (ball.acceleration * (dt * dt * 0.5f));
-    Vec2f new_acceleration = Vec2f{ 0.0f, -simState.gravity };
-    Vec2f new_velocity = ball.velocity + ((ball.acceleration + new_acceleration) * (dt * 0.5f));
 
-    ball.position = new_position;
-    ball.velocity = new_velocity;
-    ball.acceleration = new_acceleration;
+    if (ball.currPos.y - ball.radius < -1.0f) // floor
+    {
+        Vec2f currVelocity = getBallVelocity(ball, dt);
+        Vec2f newVelocity = Vec2f{ currVelocity.x, fabs(currVelocity.y) };
+        ball.currPos.y = -1.0f + ball.radius;
+        setBallVelocity(ball, newVelocity, dt);
+    }
+
+    if (ball.currPos.y + ball.radius > 1.0f) // ceiling
+    {
+        Vec2f currVelocity = getBallVelocity(ball, dt);
+        Vec2f newVelocity = Vec2f{ currVelocity.x, -fabs(currVelocity.y) };
+        ball.currPos.y = 1.0f - ball.radius;
+        setBallVelocity(ball, newVelocity, dt);
+    }
+
+    if (ball.currPos.x - ball.radius < -simState.max_u) // left wall
+    {
+        Vec2f currVelocity = getBallVelocity(ball, dt);
+        Vec2f newVelocity = Vec2f{ fabs(currVelocity.x), currVelocity.y };
+        ball.currPos.x = -simState.max_u + ball.radius;
+        setBallVelocity(ball, newVelocity, dt);
+    }
+
+    if (ball.currPos.x + ball.radius > simState.max_u) // right wall
+    {
+        Vec2f currVelocity = getBallVelocity(ball, dt);
+        Vec2f newVelocity = Vec2f{ -fabs(currVelocity.x), currVelocity.y };
+        ball.currPos.x = simState.max_u - ball.radius;
+        setBallVelocity(ball, newVelocity, dt);
+    }
 }
 
 __global__ void ballCollisionKernel(SimulationState simState)
@@ -26,38 +74,41 @@ __global__ void ballCollisionKernel(SimulationState simState)
 
     SharedArray<Ball>& balls = simState.balls;
     Ball& ball = balls.devPtr[index];
-    ball.new_position = ball.position;
-    ball.new_velocity = ball.velocity;
     
+    ball.new_currPos = ball.currPos;
+    ball.new_prevPos = ball.prevPos;
+
     for (int i = 0; i < balls.size; i++)
     {
         if (i == index) continue;
         Ball& otherBall = balls.devPtr[i];
-        
-        float distance = length(ball.position - otherBall.position);
-        float radiuses = ball.radius + otherBall.radius;
-        if (distance > radiuses) continue;
 
+        Vec2f difference = ball.new_currPos - otherBall.currPos;
+        float radiuses = ball.radius + otherBall.radius;
+        if (lengthSquared(difference) > (radiuses * radiuses)) continue; // performs distance check without expensive sqrt() operation
+        
         // elastic collision
+        float dt = simState.dt;
+        Vec2f V1 = getBallVelocity_fromNew(ball, dt);
+        Vec2f V2 = getBallVelocity_fromNew(otherBall, dt);
         float M1 = ball.mass;
         float M2 = otherBall.mass;
-        Vec2f V1 = ball.velocity;
-        Vec2f V2 = otherBall.velocity;
-        Vec2f P1 = ball.position;
-        Vec2f P2 = otherBall.position;
-        ball.new_velocity = V1 - (P1 - P2) * (((2.0f * M2) / (M1 + M2)) * (dot(V1 - V2, P1 - P2) / lengthSquared(P1 - P2)));
-        ball.new_velocity = ball.new_velocity * simState.ballCollisionDampening;
+        Vec2f P1 = ball.new_currPos;
+        Vec2f P2 = otherBall.currPos;
+        Vec2f newVelocity = V1 - ((P1 - P2) * (((2.0f * M2) / (M1 + M2)) * (dot(V1 - V2, P1 - P2) / lengthSquared(P1 - P2))));
 
         // force apart
-        float overlap = (radiuses - distance);
-        Vec2f direction = ball.position - otherBall.position;
-        normalize(direction);
-        Vec2f correction = direction * overlap;
-        ball.new_position = ball.position + correction;
+        float distance = length(difference);
+        float overlap = radiuses - distance;
+
+        normalize(difference);
+        Vec2f directionOffset = difference * (overlap * 0.5f);
+        ball.new_currPos = ball.new_currPos + directionOffset;
+        setBallVelocity_fromNew(ball, newVelocity, dt);
     }
 }
 
-__global__ void confirmCollisionsKernel(SimulationState simState)
+__global__ void confirmBallCollisionKernel(SimulationState simState)
 {
     int index = (blockIdx.x * blockDim.x) + threadIdx.x;
     if (index >= simState.balls.size) return;
@@ -65,11 +116,11 @@ __global__ void confirmCollisionsKernel(SimulationState simState)
     SharedArray<Ball>& balls = simState.balls;
     Ball& ball = balls.devPtr[index];
 
-    ball.position = ball.new_position;
-    ball.velocity = ball.new_velocity;
+    ball.currPos = ball.new_currPos;
+    ball.prevPos = ball.new_prevPos;
 }
 
-__global__ void wallCollisionResolutionKernel(SimulationState simState)
+__global__ void stepPhysicsKernel(SimulationState simState)
 {
     int index = (blockIdx.x * blockDim.x) + threadIdx.x;
     if (index >= simState.balls.size) return;
@@ -77,33 +128,10 @@ __global__ void wallCollisionResolutionKernel(SimulationState simState)
     SharedArray<Ball>& balls = simState.balls;
     Ball& ball = balls.devPtr[index];
 
-    if (ball.position.y - ball.radius < -1.0f) // floor
-    {
-        ball.position.y = -1.0f + ball.radius;
-        ball.velocity.y = fabs(ball.velocity.y);
-        ball.velocity = ball.velocity * simState.wallCollisionDampening;
-    }
-
-    if (ball.position.y + ball.radius > 1.0f) // ceiling
-    {
-        ball.position.y = 1.0f - ball.radius;
-        ball.velocity.y = -fabs(ball.velocity.y);
-        ball.velocity = ball.velocity * simState.wallCollisionDampening;
-    }
-
-    if (ball.position.x + ball.radius > simState.max_u) // right wall
-    {
-        ball.position.x = simState.max_u - ball.radius;
-        ball.velocity.x = -fabs(ball.velocity.x);
-        ball.velocity = ball.velocity * simState.wallCollisionDampening;
-    }
-
-    if (ball.position.x - ball.radius < -simState.max_u) // left wall
-    {
-        ball.position.x = -simState.max_u + ball.radius;
-        ball.velocity.x = fabs(ball.velocity.x);
-        ball.velocity = ball.velocity * simState.wallCollisionDampening;
-    }
+    ball.acceleration = Vec2f{ 0.0f, -simState.gravity };
+    Vec2f newPos = (ball.prevPos * -1.0f) + (ball.currPos * 2.0f) + (ball.acceleration * simState.dt * simState.dt);
+    ball.prevPos = ball.currPos;
+    ball.currPos = newPos;
 }
 
 __global__ void renderKernel(SimulationState simState)
@@ -118,12 +146,13 @@ __global__ void renderKernel(SimulationState simState)
     
     float u = ((x / (float)simState.screenWidth) * 2.0f - 1.0f) * (simState.screenWidth / (float)simState.screenHeight);
     float v = (y / (float)simState.screenHeight) * 2.0f - 1.0f;
+    Vec2f pixelPos = Vec2f{ u,v };
 
     SharedArray<Ball>& balls = simState.balls;
     for (int i = 0; i < balls.size; i++)
     {
         Ball& ball = balls.devPtr[i];
-        Vec2f relBallPos = ball.position - Vec2f{ u,v };
+        Vec2f relBallPos = ball.currPos - pixelPos;
         if (length(relBallPos) < ball.radius)
         {
             simState.pixels[index] = ball.color;
@@ -135,7 +164,7 @@ __global__ void renderKernel(SimulationState simState)
     return;
 }
 
-void InteropOpenGL::executePixelKernel(SimulationState& simState)
+void InteropOpenGL::executeKernels(SimulationState& simState)
 {
     simState.pixels = nullptr;
     size_t size = 0;
@@ -145,21 +174,19 @@ void InteropOpenGL::executePixelKernel(SimulationState& simState)
     int BALLS_threadsPerBlock = 256;
     int BALLS_blocksPerGrid = (simState.balls.size + BALLS_threadsPerBlock - 1) / BALLS_threadsPerBlock;
 
-    physicsKernel <<<BALLS_blocksPerGrid, BALLS_threadsPerBlock>>> (simState);
+    wallCollisionKernel <<<BALLS_blocksPerGrid, BALLS_threadsPerBlock>>> (simState);
     cudaDeviceSynchronize();
 
-    for (int i = 0; i < 64; i++)
-    {
-        wallCollisionResolutionKernel <<<BALLS_blocksPerGrid, BALLS_threadsPerBlock>>> (simState);
-        cudaDeviceSynchronize();
-        ballCollisionKernel <<<BALLS_blocksPerGrid, BALLS_threadsPerBlock>>> (simState);
-        cudaDeviceSynchronize();
-    }
-
-    confirmCollisionsKernel <<<BALLS_blocksPerGrid, BALLS_threadsPerBlock>>> (simState);
+    ballCollisionKernel <<<BALLS_blocksPerGrid, BALLS_threadsPerBlock>>> (simState);
     cudaDeviceSynchronize();
 
-    renderKernel <<<WINDOW_blocksPerGrid, WINDOW_threadsPerBlock >>> (simState);
+    confirmBallCollisionKernel <<<BALLS_blocksPerGrid, BALLS_threadsPerBlock>>> (simState);
+    cudaDeviceSynchronize();
+
+    stepPhysicsKernel <<<BALLS_blocksPerGrid, BALLS_threadsPerBlock>>> (simState);
+    cudaDeviceSynchronize();
+
+    renderKernel <<<WINDOW_blocksPerGrid, WINDOW_threadsPerBlock>>> (simState);
     cudaDeviceSynchronize();
 }
 

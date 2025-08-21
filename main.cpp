@@ -14,7 +14,7 @@ int main()
     while (OpenGL.isAlive())
     {
         OpenGL.processUserInput();
-        OpenGL.executePixelKernel(simState);
+        OpenGL.executeKernels(simState);
         OpenGL.renderFullScreenQuad();
         OpenGL.renderImGui(simState);
         OpenGL.swapBuffers();
