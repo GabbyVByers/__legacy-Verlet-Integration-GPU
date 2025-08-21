@@ -80,28 +80,28 @@ __global__ void wallCollisionResolutionKernel(SimulationState simState)
     if (ball.position.y - ball.radius < -1.0f) // floor
     {
         ball.position.y = -1.0f + ball.radius;
-        ball.velocity.y = -1.0f * ball.velocity.y;
+        ball.velocity.y = fabs(ball.velocity.y);
         ball.velocity = ball.velocity * simState.wallCollisionDampening;
     }
 
     if (ball.position.y + ball.radius > 1.0f) // ceiling
     {
         ball.position.y = 1.0f - ball.radius;
-        ball.velocity.y = -1.0f * ball.velocity.y;
+        ball.velocity.y = -fabs(ball.velocity.y);
         ball.velocity = ball.velocity * simState.wallCollisionDampening;
     }
 
     if (ball.position.x + ball.radius > simState.max_u) // right wall
     {
         ball.position.x = simState.max_u - ball.radius;
-        ball.velocity.x = -1.0f * ball.velocity.x;
+        ball.velocity.x = -fabs(ball.velocity.x);
         ball.velocity = ball.velocity * simState.wallCollisionDampening;
     }
 
     if (ball.position.x - ball.radius < -simState.max_u) // left wall
     {
         ball.position.x = -simState.max_u + ball.radius;
-        ball.velocity.x = -1.0f * ball.velocity.x;
+        ball.velocity.x = fabs(ball.velocity.x);
         ball.velocity = ball.velocity * simState.wallCollisionDampening;
     }
 }
@@ -145,17 +145,18 @@ void InteropOpenGL::executePixelKernel(SimulationState& simState)
     int BALLS_threadsPerBlock = 256;
     int BALLS_blocksPerGrid = (simState.balls.size + BALLS_threadsPerBlock - 1) / BALLS_threadsPerBlock;
 
-    for (int i = 0; i < 16; i++)
+    physicsKernel <<<BALLS_blocksPerGrid, BALLS_threadsPerBlock>>> (simState);
+    cudaDeviceSynchronize();
+
+    for (int i = 0; i < 64; i++)
     {
+        wallCollisionResolutionKernel <<<BALLS_blocksPerGrid, BALLS_threadsPerBlock>>> (simState);
+        cudaDeviceSynchronize();
         ballCollisionKernel <<<BALLS_blocksPerGrid, BALLS_threadsPerBlock>>> (simState);
-        cudaDeviceSynchronize();
-        confirmCollisionsKernel <<<BALLS_blocksPerGrid, BALLS_threadsPerBlock>>> (simState);
-        cudaDeviceSynchronize();
-        wallCollisionResolutionKernel <<<BALLS_blocksPerGrid, BALLS_threadsPerBlock >>> (simState);
         cudaDeviceSynchronize();
     }
 
-    physicsKernel << <BALLS_blocksPerGrid, BALLS_threadsPerBlock >> > (simState);
+    confirmCollisionsKernel <<<BALLS_blocksPerGrid, BALLS_threadsPerBlock>>> (simState);
     cudaDeviceSynchronize();
 
     renderKernel <<<WINDOW_blocksPerGrid, WINDOW_threadsPerBlock >>> (simState);
