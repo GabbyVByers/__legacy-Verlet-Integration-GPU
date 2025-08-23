@@ -9,6 +9,7 @@ struct Ball
     Vec2f currPos;
     Vec2f prevPos;
     Vec2f acceleration;
+    Vec2f bounceVelocity;
     float radius = 0.0f;
     float mass = 1.0f;
     uchar4 color = make_uchar4(255, 255, 255, 255);

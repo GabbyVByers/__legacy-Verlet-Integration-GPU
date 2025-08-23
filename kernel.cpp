@@ -57,7 +57,7 @@ __global__ void wallCollisionKernel(SimulationState simState)
     }
 }
 
-__global__ void stepPhysicsKernel(SimulationState simState)
+__global__ void ellasticCollisionKernel(SimulationState simState)
 {
     int index = (blockIdx.x * blockDim.x) + threadIdx.x;
     if (index >= simState.balls.size) return;
@@ -65,9 +65,47 @@ __global__ void stepPhysicsKernel(SimulationState simState)
     SharedArray<Ball>& balls = simState.balls;
     Ball& ball = balls.devPtr[index];
 
-    Vec2f newPos = (ball.prevPos * -1.0f) + (ball.currPos * 2.0f) + (ball.acceleration * simState.dt * simState.dt);
-    ball.prevPos = ball.currPos;
-    ball.currPos = newPos;
+    int closestOverlappingOtherBallIndex = -1;
+    float closestDistance = FLT_MAX;
+    for (int i = 0; i < balls.size; i++)
+    {
+        if (i == index) continue;
+        Ball& otherBall = balls.devPtr[index];
+
+        Vec2f difference = ball.currPos - otherBall.currPos;
+        float distance = length(difference);
+        float radiuses = ball.radius + otherBall.radius;
+        if (distance < radiuses)
+        {
+            if (distance < closestDistance)
+            {
+                closestDistance = distance;
+                closestOverlappingOtherBallIndex = index;
+            }
+        }
+    }
+
+    ball.bounceVelocity = Vec2f{ 0.0f, 0.0f };
+    if (closestOverlappingOtherBallIndex == -1) return;
+    Ball& otherBall = balls.devPtr[closestOverlappingOtherBallIndex];
+    float dt = simState.dt;
+    Vec2f V1 = getVelocity(ball, dt);
+    Vec2f V2 = getVelocity(otherBall, dt);
+    float M1 = ball.mass;
+    float M2 = otherBall.mass;
+    Vec2f P1 = ball.currPos;
+    Vec2f P2 = otherBall.currPos;
+    ball.bounceVelocity = V1 - ((P1 - P2) * ((2.0f * M2) / (M1 + M2)) * (dot(V1 - V2, P1 - P2) / lengthSquared(P1 - P2)));
+}
+
+__global__ void setBounceVelocitiesKernel(SimulationState simState)
+{
+    int index = (blockIdx.x * blockDim.x) + threadIdx.x;
+    if (index >= simState.balls.size) return;
+
+    SharedArray<Ball>& balls = simState.balls;
+    Ball& ball = balls.devPtr[index];
+    setVelocity(ball, ball.bounceVelocity, simState.dt);
 }
 
 __global__ void renderKernel(SimulationState simState)
@@ -100,6 +138,19 @@ __global__ void renderKernel(SimulationState simState)
     return;
 }
 
+__global__ void stepPhysicsKernel(SimulationState simState)
+{
+    int index = (blockIdx.x * blockDim.x) + threadIdx.x;
+    if (index >= simState.balls.size) return;
+
+    SharedArray<Ball>& balls = simState.balls;
+    Ball& ball = balls.devPtr[index];
+
+    Vec2f newPos = (ball.prevPos * -1.0f) + (ball.currPos * 2.0f) + (ball.acceleration * simState.dt * simState.dt);
+    ball.prevPos = ball.currPos;
+    ball.currPos = newPos;
+}
+
 void InteropOpenGL::executeKernels(SimulationState& simState)
 {
     simState.pixels = nullptr;
@@ -111,8 +162,10 @@ void InteropOpenGL::executeKernels(SimulationState& simState)
     int BALLS_blocksPerGrid = (simState.balls.size + BALLS_threadsPerBlock - 1) / BALLS_threadsPerBlock;
 
     // determine acceleration kernel (not implemented because currently static)
-    wallCollisionKernel KERNEL_DIM(BALLS_blocksPerGrid, BALLS_threadsPerBlock)(simState); cudaDeviceSynchronize();
-    renderKernel KERNEL_DIM(PIXLS_blocksPerGrid, PIXLS_threadsPerBlock)(simState); cudaDeviceSynchronize();
-    stepPhysicsKernel KERNEL_DIM(BALLS_blocksPerGrid, BALLS_threadsPerBlock)(simState); cudaDeviceSynchronize();
+    wallCollisionKernel       KERNEL_DIM(BALLS_blocksPerGrid, BALLS_threadsPerBlock)(simState); cudaDeviceSynchronize();
+    ellasticCollisionKernel   KERNEL_DIM(BALLS_blocksPerGrid, BALLS_threadsPerBlock)(simState); cudaDeviceSynchronize();
+    setBounceVelocitiesKernel KERNEL_DIM(BALLS_blocksPerGrid, BALLS_threadsPerBlock)(simState); cudaDeviceSynchronize();
+    renderKernel              KERNEL_DIM(PIXLS_blocksPerGrid, PIXLS_threadsPerBlock)(simState); cudaDeviceSynchronize();
+    stepPhysicsKernel         KERNEL_DIM(BALLS_blocksPerGrid, BALLS_threadsPerBlock)(simState); cudaDeviceSynchronize();
 }
 
